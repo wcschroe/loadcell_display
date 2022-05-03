@@ -41,6 +41,19 @@ demonstrated in this sketch.
 #include <SPI.h>
 #include <TFT_eSPI.h>       // Hardware-specific library
 #include <HX711.h>
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <WiFiAP.h>
+#include <ModbusIP_ESP8266.h>
+
+// Modbus Registers Offsets
+const int TEST_HREG = 100;
+
+//ModbusIP object
+ModbusIP mb;
+
+//IP Object
+IPAddress myIP;
 
 // HX711 circuit wiring
 const int LOADCELL_DOUT_PIN = 22;
@@ -72,6 +85,11 @@ void changeMode() {
     }
 }
 
+union {
+    uint16_t i[2];
+    float f;
+} converter;
+
 void wait(unsigned long ms) {
     unsigned long start = millis();
     unsigned long now = millis();
@@ -79,7 +97,7 @@ void wait(unsigned long ms) {
     bool change_sent = false;
     while((now - start) < ms) {
         now = millis();
-        
+        mb.task();
         if (digitalRead(0) == 0 && !tare_sent) {
             scale.tare();
             tare_sent = true;
@@ -92,6 +110,12 @@ void wait(unsigned long ms) {
 }
 
 void setup(void) {
+ 
+    WiFi.softAP("LOAD_CELL_HOTSPOT", "3rdWaveLabs");
+    myIP = WiFi.softAPIP();
+
+    mb.server(504);
+    mb.addHreg(0, 0, 100);
 
     tft.begin();
 
@@ -132,6 +156,9 @@ void loop() {
                 tft.setTextColor(TFT_CYAN, TFT_BLACK);
                 tft.println(" kg");
             }
+            converter.f = value_in_kg;
+            mb.Hreg(0, converter.i[0]);
+            mb.Hreg(1, converter.i[1]);
         }
         else if (mode == LBS) {
             tft.print(value * CTS_TO_LBS, 3);
@@ -153,7 +180,15 @@ void loop() {
         tft.setTextColor(TFT_CYAN, TFT_BLACK);
         tft.println("- - - -");
     }
+    tft.loadFont(AA_FONT_SMALL);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    
+    tft.print("MB address: ");
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.print(myIP);
+    tft.println(":504");
 
+    mb.task();
     value = scale.get_value(5);
     wait(250);
 }
