@@ -90,13 +90,10 @@ union {
     float f;
 } converter;
 
-void wait(unsigned long ms) {
-    unsigned long start = millis();
-    unsigned long now = millis();
+void wait_on_scale() {
     bool tare_sent = false;
     bool change_sent = false;
-    while((now - start) < ms) {
-        now = millis();
+    while(!scale.is_ready()) {
         mb.task();
         if (digitalRead(0) == 0 && !tare_sent) {
             scale.tare();
@@ -190,5 +187,5 @@ void loop() {
 
     mb.task();
     value = scale.get_value(5);
-    wait(250);
+    wait_on_scale();
 }
