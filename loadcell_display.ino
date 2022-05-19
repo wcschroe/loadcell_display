@@ -25,7 +25,7 @@ const int TEST_HREG = 100;
 
 //Modbus objects
 ModbusRTU MBRTU;
-ModbusIP mb;
+ModbusIP MBWiFi;
 
 //IP Object
 IPAddress myIP;
@@ -79,7 +79,7 @@ void wait_on_scale() {
     bool change_sent = false;
     while(!scale.is_ready()) {
         MBRTU.task();
-        mb.task();
+        MBWiFi.task();
         if (digitalRead(TARE_BUTTON_PIN) == 0 && !tare_sent) {
             scale.tare();
             tare_sent = true;
@@ -102,8 +102,8 @@ void setup(void) {
     WiFi.softAP("LOAD_CELL_HOTSPOT", "3rdWaveLabs");
     myIP = WiFi.softAPIP();
 
-    mb.server(504);
-    mb.addHreg(0, 0, 100);
+    MBWiFi.server(504);
+    MBWiFi.addHreg(0, 0, 100);
 
     tft.begin();
 
@@ -142,8 +142,8 @@ void loop() {
             converter.f = value_in_kg;
             MBRTU.Hreg(0, converter.i[0]);
             MBRTU.Hreg(1, converter.i[1]);
-            mb.Hreg(0, converter.i[0]);
-            mb.Hreg(1, converter.i[1]);
+            MBWiFi.Hreg(0, converter.i[0]);
+            MBWiFi.Hreg(1, converter.i[1]);
         }
         else if (mode == LBS) {
             tft.print(value * CTS_TO_LBS, 3);
@@ -177,7 +177,7 @@ void loop() {
     tft.println(":504");
 
     MBRTU.task();
-    mb.task();
+    MBWiFi.task();
     value = scale.get_value(5);
     wait_on_scale();
 }
