@@ -1,35 +1,5 @@
-/*
-This sketch is the same as the Font_Demo_1 example, except the fonts in this
-example are in a FLASH (program memory) array. This means that processors
-such as the STM32 series that are not supported by a SPIFFS library can use
-smooth (anti-aliased) fonts.
-*/
 
-/*
-There are four different methods of plotting anti-aliased fonts to the screen.
 
-This sketch uses method 1, using tft.print() and tft.println() calls.
-
-In some cases the sketch shows what can go wrong too, so read the comments!
-
-The font is rendered WITHOUT a background, but a background colour needs to be
-set so the anti-aliasing of the character is performed correctly. This is because
-characters are drawn one by one.
-
-This method is good for static text that does not change often because changing
-values may flicker. The text appears at the tft cursor coordinates.
-
-It is also possible to "print" text directly into a created sprite, for example using
-spr.println("Hello"); and then push the sprite to the screen. That method is not
-demonstrated in this sketch.
-
-*/
-
-//  A processing sketch to create new fonts can be found in the Tools folder of TFT_eSPI
-//  https://github.com/Bodmer/TFT_eSPI/tree/master/Tools/Create_Smooth_Font/Create_font
-
-//  This sketch uses font files created from the Noto family of fonts:
-//  https://www.google.com/get/noto/
 
 #include "NotoSansBold15.h"
 #include "NotoSansBold36.h"
@@ -45,11 +15,16 @@ demonstrated in this sketch.
 #include <WiFiClient.h>
 #include <WiFiAP.h>
 #include <ModbusIP_ESP8266.h>
+#include <ModbusRTU.h>
 
 // Modbus Registers Offsets
 const int TEST_HREG = 100;
 
-//ModbusIP object
+//TODO: Modbus object
+
+
+//Modbus objects
+ModbusRTU MBRTU;
 ModbusIP mb;
 
 //IP Object
@@ -58,15 +33,24 @@ IPAddress myIP;
 // HX711 circuit wiring
 const int LOADCELL_DOUT_PIN = 22;
 const int LOADCELL_SCK_PIN = 21;
+const int TARE_BUTTON_PIN = 0;
+const int UNIT_BUTTON_PIN = 25;
 
-#define CTS_TO_KGS (0.1880 / 16700.0)
-#define CTS_TO_LBS (0.4125 / 16700.0)
-#define CTS_TO_OZ (6.6 / 16700.0)
+// #define CTS_TO_KGS (0.1880 / 16700.0)
+// #define CTS_TO_LBS (0.4125 / 16700.0)
+// #define CTS_TO_OZ (6.6 / 16700.0)
+
+#define CTS_TO_KGS (22.6796 / 2030032.0)
+#define CTS_TO_LBS (50.0 / 2030032.0)
+#define CTS_TO_OZ (800.0 / 2030032.0)
+
+//2.4700598802395209580838323353293e-5
+//2.4630153613342055691732938199989e-5
 
 enum {
     KGS,
     LBS,
-    OZ,
+    OZS,
     CTS,
 };
 
@@ -94,12 +78,13 @@ void wait_on_scale() {
     bool tare_sent = false;
     bool change_sent = false;
     while(!scale.is_ready()) {
+        MBRTU.task();
         mb.task();
-        if (digitalRead(0) == 0 && !tare_sent) {
+        if (digitalRead(TARE_BUTTON_PIN) == 0 && !tare_sent) {
             scale.tare();
             tare_sent = true;
         }
-        if (digitalRead(35) == 0 && !change_sent) {
+        if (digitalRead(UNIT_BUTTON_PIN) == 0 && !change_sent) {
             changeMode();
             change_sent = true;
         }
@@ -108,6 +93,12 @@ void wait_on_scale() {
 
 void setup(void) {
  
+    // set up modbus server here
+    Serial.begin(115200, SERIAL_8N1);
+    MBRTU.begin(&Serial);
+    MBRTU.slave(1);
+    MBRTU.addHreg(0, 0, 100);
+
     WiFi.softAP("LOAD_CELL_HOTSPOT", "3rdWaveLabs");
     myIP = WiFi.softAPIP();
 
@@ -118,8 +109,8 @@ void setup(void) {
 
     tft.setRotation(1);
 
-    pinMode(0, INPUT);
-    pinMode(35, INPUT);
+    pinMode(TARE_BUTTON_PIN, INPUT);
+    pinMode(UNIT_BUTTON_PIN, INPUT);
 
     scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
     scale.tare();
@@ -136,24 +127,21 @@ void loop() {
 
     tft.loadFont(AA_FONT_LARGE);// Must load the font first
 
-    tft.println("Load Cell:\n");// println moves cursor down for a new line
+    tft.println("Load Cell:");// println moves cursor down for a new line
 
     if (scale.is_ready()) {
         if (value < 0)
             value = value * -1;
         if (mode == KGS) {
             double value_in_kg = (value * CTS_TO_KGS);
-            if (value_in_kg < 1) {
-                tft.print(value_in_kg * 1000, 1);
-                tft.setTextColor(TFT_CYAN, TFT_BLACK);
-                tft.println(" g");
-            }
-            else {
-                tft.print(value_in_kg, 3);
-                tft.setTextColor(TFT_CYAN, TFT_BLACK);
-                tft.println(" kg");
-            }
+            
+            tft.print(value_in_kg, 3);
+            tft.setTextColor(TFT_CYAN, TFT_BLACK);
+            tft.println(" kg");
+
             converter.f = value_in_kg;
+            MBRTU.Hreg(0, converter.i[0]);
+            MBRTU.Hreg(1, converter.i[1]);
             mb.Hreg(0, converter.i[0]);
             mb.Hreg(1, converter.i[1]);
         }
@@ -162,7 +150,7 @@ void loop() {
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
             tft.println(" lbs");
         }
-        else if (mode == OZ) {
+        else if (mode == OZS) {
             tft.print(value * CTS_TO_OZ, 3);
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
             tft.println(" oz");
@@ -180,11 +168,15 @@ void loop() {
     tft.loadFont(AA_FONT_SMALL);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     
-    tft.print("MB address: ");
+    tft.print("\nMB RTU: ");
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.println("Addr 1, 115200, 8N1");
+    tft.print("MB WIFI: ");
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
     tft.print(myIP);
     tft.println(":504");
 
+    MBRTU.task();
     mb.task();
     value = scale.get_value(5);
     wait_on_scale();
