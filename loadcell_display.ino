@@ -34,7 +34,7 @@ IPAddress myIP;
 const int LOADCELL_DOUT_PIN = 22;
 const int LOADCELL_SCK_PIN = 21;
 const int TARE_BUTTON_PIN = 0;
-const int UNIT_BUTTON_PIN = 25;
+const int UNIT_BUTTON_PIN = 35;
 
 // #define CTS_TO_KGS (0.1880 / 16700.0)
 // #define CTS_TO_LBS (0.4125 / 16700.0)
@@ -90,6 +90,7 @@ void wait_on_scale() {
         }
     }
 }
+int16_t readout_x1, readout_y1, readout_x2, readout_y2;
 
 void setup(void) {
  
@@ -112,12 +113,6 @@ void setup(void) {
     pinMode(TARE_BUTTON_PIN, INPUT);
     pinMode(UNIT_BUTTON_PIN, INPUT);
 
-    scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
-    scale.tare();
-}
-
-
-void loop() {
     tft.fillScreen(TFT_BLACK);
 
     tft.setTextColor(TFT_WHITE, TFT_BLACK); // Set the font colour AND the background colour
@@ -128,6 +123,42 @@ void loop() {
     tft.loadFont(AA_FONT_LARGE);// Must load the font first
 
     tft.println("Load Cell:");// println moves cursor down for a new line
+    readout_x1 = tft.getCursorX();
+    readout_y1 = tft.getCursorY();
+    tft.setTextColor(TFT_CYAN, TFT_BLACK);
+    tft.print("- - - -");
+    readout_x2 = tft.getCursorX();
+    tft.println();
+    readout_y2 = tft.getCursorY();
+    tft.println();
+    scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+    scale.tare();
+    tft.loadFont(AA_FONT_SMALL);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    
+    tft.print("\nMB RTU: ");
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.println("Addr 1, 115200, 8N1");
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.print("MB WIFI: ");
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.print(myIP);
+    tft.println(":504");
+}
+
+
+void loop() {
+
+    tft.setTextColor(TFT_WHITE, TFT_BLACK); // Set the font colour AND the background colour
+    // so the anti-aliasing works
+
+    tft.setCursor(readout_x1, readout_y1);// Set cursor at top left of screen
+    tft.fillRect(readout_x1, readout_y1, readout_x2-readout_x1, readout_y2-readout_y1, TFT_BLACK);
+
+    tft.loadFont(AA_FONT_LARGE);// Must load the font first
+    
+    readout_x1 = tft.getCursorX();
+    readout_y1 = tft.getCursorY();
 
     if (scale.is_ready()) {
         if (value < 0)
@@ -137,7 +168,7 @@ void loop() {
             
             tft.print(value_in_kg, 3);
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
-            tft.println(" kg");
+            tft.print(" kg");
 
             converter.f = value_in_kg;
             MBRTU.Hreg(0, converter.i[0]);
@@ -148,33 +179,28 @@ void loop() {
         else if (mode == LBS) {
             tft.print(value * CTS_TO_LBS, 3);
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
-            tft.println(" lbs");
+            tft.print(" lbs");
         }
         else if (mode == OZS) {
             tft.print(value * CTS_TO_OZ, 3);
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
-            tft.println(" oz");
+            tft.print(" oz");
         }
         else if (mode == CTS) {
             tft.print(value);
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
-            tft.println(" cts");
+            tft.print(" cts");
         }
     } 
     else {
         tft.setTextColor(TFT_CYAN, TFT_BLACK);
-        tft.println("- - - -");
+        tft.print("- - - -");
     }
-    tft.loadFont(AA_FONT_SMALL);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
     
-    tft.print("\nMB RTU: ");
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.println("Addr 1, 115200, 8N1");
-    tft.print("MB WIFI: ");
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.print(myIP);
-    tft.println(":504");
+    readout_x2 = tft.getCursorX();
+    tft.println();
+    readout_y2 = tft.getCursorY();
 
     MBRTU.task();
     MBWiFi.task();
