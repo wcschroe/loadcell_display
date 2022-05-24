@@ -37,6 +37,9 @@ const int LOADCELL_SCK_PIN = 21;
 const int TARE_BUTTON_PIN = 0;
 const int UNIT_BUTTON_PIN = 35;
 
+int last_tare_state = 0;
+int last_unit_state = 0;
+
 // #define CTS_TO_KGS (22.6796 / 2030032.0)
 // #define CTS_TO_LBS (50.0 / 2030032.0)
 // #define CTS_TO_OZ (800.0 / 2030032.0)
@@ -161,19 +164,17 @@ void MB_Poll() {
 }
 
 void wait_on_scale() {
-    bool tare_sent = false;
-    bool change_sent = false;
     while(!scale.is_ready()) {
+        last_tare_state = digitalRead(TARE_BUTTON_PIN);
+        last_unit_state = digitalRead(UNIT_BUTTON_PIN);
         MB_Poll();
-        if (digitalRead(TARE_BUTTON_PIN) == 0 && !tare_sent) {
+        if (digitalRead(TARE_BUTTON_PIN) == 0 && last_tare_state == 1) {
             update_scaling(MBRTU_Read_float(CTS_AT_50_LBS_LSB));
             EEPROM_Write_float(CTS_AT_50_LBS_EADDR, CTS_AT_50_LBS);
             scale.tare();
-            tare_sent = true;
         }
-        if (digitalRead(UNIT_BUTTON_PIN) == 0 && !change_sent) {
+        if (digitalRead(UNIT_BUTTON_PIN) == 0 && last_unit_state == 1) {
             changeMode();
-            change_sent = true;
         }
     }
 }
