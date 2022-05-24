@@ -56,7 +56,7 @@ enum MBR{
     READOUT_MSB,
     CTS_AT_50_LBS_LSB,
     CTS_AT_50_LBS_MSB,
-    test1,
+    READOUT_UNITS,
     test2,
     test3,
     test4,
@@ -144,6 +144,11 @@ void MB_Write_float(uint16_t lsb, float value) {
     MBRTU.Hreg(lsb + 1, converter.i[1]);
     MBWiFi.Hreg(lsb + 0, converter.i[0]);
     MBWiFi.Hreg(lsb + 1, converter.i[1]);
+}
+
+void MB_Write_uint16_t(uint16_t addr, uint16_t value) {
+    MBRTU.Hreg(addr, value);
+    MBWiFi.Hreg(addr, value);
 }
 
 float MBRTU_Read_float(uint16_t lsb) {
@@ -237,7 +242,6 @@ void setup(void) {
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
     tft.print(myIP);
     tft.println(":504");
-    MB_Write_float(CTS_AT_50_LBS_LSB, CTS_AT_50_LBS);
 }
 
 
@@ -282,6 +286,7 @@ void loop() {
             tft.print(" cts");
         }
         MB_Write_float(READOUT_LSB, scaled_value);
+        MB_Write_uint16_t(READOUT_UNITS, mode);
     } 
     else {
         tft.setTextColor(TFT_CYAN, TFT_BLACK);
