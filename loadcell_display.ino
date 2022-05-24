@@ -16,6 +16,7 @@
 #include <WiFiAP.h>
 #include <ModbusIP_ESP8266.h>
 #include <ModbusRTU.h>
+#include "EEPROM.h"
 
 // Modbus Registers Offsets
 const int TEST_HREG = 100;
@@ -36,18 +37,38 @@ const int LOADCELL_SCK_PIN = 21;
 const int TARE_BUTTON_PIN = 0;
 const int UNIT_BUTTON_PIN = 35;
 
-// #define CTS_TO_KGS (0.1880 / 16700.0)
-// #define CTS_TO_LBS (0.4125 / 16700.0)
-// #define CTS_TO_OZ (6.6 / 16700.0)
+// #define CTS_TO_KGS (22.6796 / 2030032.0)
+// #define CTS_TO_LBS (50.0 / 2030032.0)
+// #define CTS_TO_OZ (800.0 / 2030032.0)
 
-#define CTS_TO_KGS (22.6796 / 2030032.0)
-#define CTS_TO_LBS (50.0 / 2030032.0)
-#define CTS_TO_OZ (800.0 / 2030032.0)
+float CTS_AT_50_LBS = (0.0);
 
-//2.4700598802395209580838323353293e-5
-//2.4630153613342055691732938199989e-5
+float CTS_TO_KGS = (0.0);
+float CTS_TO_LBS = (0.0);
+float CTS_TO_OZS = (0.0);
 
-enum {
+//Modbus Register List
+enum MBR{
+    READOUT_LSB,
+    READOUT_MSB,
+    CTS_AT_50_LBS_LSB,
+    CTS_AT_50_LBS_MSB,
+    test1,
+    test2,
+    test3,
+    test4,
+
+    //Leave this one
+    TOTAL_REGS_SIZE
+};
+
+enum EEPROM_ADDRESSES {
+    CTS_AT_50_LBS_EADDR = 0,
+    EEPROM_SIZE = 64
+};
+
+//Mode select
+enum Mode_Select{
     KGS,
     LBS,
     OZS,
@@ -70,17 +91,83 @@ void changeMode() {
 }
 
 union {
+    uint8_t b[4];
     uint16_t i[2];
     float f;
 } converter;
+
+void update_scaling(float cts_at_50_lbs) {
+    CTS_AT_50_LBS = cts_at_50_lbs;
+    CTS_TO_KGS = (22.6796 / cts_at_50_lbs);
+    CTS_TO_LBS = (50.0 / cts_at_50_lbs);
+    CTS_TO_OZS = (800.0 / cts_at_50_lbs);
+}
+
+void EEPROM_Write_float(uint8_t address, float value) {
+    converter.f = value;
+    EEPROM.writeByte(address + 0, converter.b[0]);
+    EEPROM.writeByte(address + 1, converter.b[1]);
+    EEPROM.writeByte(address + 2, converter.b[2]);
+    EEPROM.writeByte(address + 3, converter.b[3]);
+    EEPROM.commit();
+}
+
+float EEPROM_Read_float(uint8_t address) {
+    converter.b[0] = EEPROM.readByte(address + 0);
+    converter.b[1] = EEPROM.readByte(address + 1);
+    converter.b[2] = EEPROM.readByte(address + 2);
+    converter.b[3] = EEPROM.readByte(address + 3);
+    return converter.f;
+}
+
+void EEPROM_Write_uint16_t(uint8_t address, uint16_t lsb, uint16_t msb) {
+    converter.i[0] = lsb;
+    converter.i[1] = msb;
+    for (int a = 0; a < 4; a++) EEPROM.write(address + a, converter.b[a]);
+    EEPROM.commit();
+}
+
+uint16_t* EEPROM_Read_uint16_t(uint8_t address) {
+    for (int a = 0; a < 4; a++) converter.b[a] = EEPROM.read(address + a);
+    return converter.i;
+}
+
+void MB_Write_float(uint16_t lsb, float value) {
+    if (lsb == CTS_AT_50_LBS_LSB) {
+        update_scaling(value);
+    }
+    converter.f = value;
+    MBRTU.Hreg(lsb + 0, converter.i[0]);
+    MBRTU.Hreg(lsb + 1, converter.i[1]);
+    MBWiFi.Hreg(lsb + 0, converter.i[0]);
+    MBWiFi.Hreg(lsb + 1, converter.i[1]);
+}
+
+float MBRTU_Read_float(uint16_t lsb) {
+    converter.i[0] = MBRTU.Hreg(lsb + 0);
+    converter.i[1] = MBRTU.Hreg(lsb + 1);
+    return converter.f;
+}
+
+float MBWiFi_Read_float(uint16_t lsb) {
+    converter.i[0] = MBWiFi.Hreg(lsb + 0);
+    converter.i[1] = MBWiFi.Hreg(lsb + 1);
+    return converter.f;
+}
+
+void MB_Poll() {
+    MBRTU.task();
+    MBWiFi.task();
+}
 
 void wait_on_scale() {
     bool tare_sent = false;
     bool change_sent = false;
     while(!scale.is_ready()) {
-        MBRTU.task();
-        MBWiFi.task();
+        MB_Poll();
         if (digitalRead(TARE_BUTTON_PIN) == 0 && !tare_sent) {
+            update_scaling(MBRTU_Read_float(CTS_AT_50_LBS_LSB));
+            EEPROM_Write_float(CTS_AT_50_LBS_EADDR, CTS_AT_50_LBS);
             scale.tare();
             tare_sent = true;
         }
@@ -98,13 +185,21 @@ void setup(void) {
     Serial.begin(115200, SERIAL_8N1);
     MBRTU.begin(&Serial);
     MBRTU.slave(1);
-    MBRTU.addHreg(0, 0, 100);
+    MBRTU.addHreg(0, 0, TOTAL_REGS_SIZE);
 
     WiFi.softAP("LOAD_CELL_HOTSPOT", "3rdWaveLabs");
     myIP = WiFi.softAPIP();
 
     MBWiFi.server(504);
-    MBWiFi.addHreg(0, 0, 100);
+    MBWiFi.addHreg(0, 0, TOTAL_REGS_SIZE);
+
+    while(!EEPROM.begin(EEPROM_SIZE)) {}
+    CTS_AT_50_LBS = EEPROM_Read_float(CTS_AT_50_LBS_EADDR);
+    MB_Write_float(CTS_AT_50_LBS_LSB, CTS_AT_50_LBS);
+    update_scaling(CTS_AT_50_LBS);
+    
+    scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+    scale.tare();
 
     tft.begin();
 
@@ -130,9 +225,6 @@ void setup(void) {
     readout_x2 = tft.getCursorX();
     tft.println();
     readout_y2 = tft.getCursorY();
-    tft.println();
-    scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
-    scale.tare();
     tft.loadFont(AA_FONT_SMALL);
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     
@@ -144,53 +236,51 @@ void setup(void) {
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
     tft.print(myIP);
     tft.println(":504");
+    MB_Write_float(CTS_AT_50_LBS_LSB, CTS_AT_50_LBS);
 }
 
 
 void loop() {
 
+    tft.loadFont(AA_FONT_LARGE);// Must load the font first
     tft.setTextColor(TFT_WHITE, TFT_BLACK); // Set the font colour AND the background colour
     // so the anti-aliasing works
 
     tft.setCursor(readout_x1, readout_y1);// Set cursor at top left of screen
     tft.fillRect(readout_x1, readout_y1, readout_x2-readout_x1, readout_y2-readout_y1, TFT_BLACK);
 
-    tft.loadFont(AA_FONT_LARGE);// Must load the font first
     
     readout_x1 = tft.getCursorX();
     readout_y1 = tft.getCursorY();
 
     if (scale.is_ready()) {
-        if (value < 0)
-            value = value * -1;
+        float scaled_value;
         if (mode == KGS) {
-            double value_in_kg = (value * CTS_TO_KGS);
-            
-            tft.print(value_in_kg, 3);
+            scaled_value = (value * CTS_TO_KGS);
+            tft.print(scaled_value, 3);
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
             tft.print(" kg");
-
-            converter.f = value_in_kg;
-            MBRTU.Hreg(0, converter.i[0]);
-            MBRTU.Hreg(1, converter.i[1]);
-            MBWiFi.Hreg(0, converter.i[0]);
-            MBWiFi.Hreg(1, converter.i[1]);
         }
         else if (mode == LBS) {
-            tft.print(value * CTS_TO_LBS, 3);
+            scaled_value = (value * CTS_TO_LBS);
+            tft.print(scaled_value, 3);
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
             tft.print(" lbs");
         }
         else if (mode == OZS) {
-            tft.print(value * CTS_TO_OZ, 3);
+            scaled_value = (value * CTS_TO_OZS);
+            tft.print(value * CTS_TO_OZS, 3);
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
             tft.print(" oz");
         }
         else if (mode == CTS) {
-            tft.print(value);
+            tft.loadFont(AA_FONT_SMALL);
+            scaled_value = (value);
+            tft.print(scaled_value);
             tft.setTextColor(TFT_CYAN, TFT_BLACK);
             tft.print(" cts");
         }
+        MB_Write_float(READOUT_LSB, scaled_value);
     } 
     else {
         tft.setTextColor(TFT_CYAN, TFT_BLACK);
@@ -202,8 +292,6 @@ void loop() {
     tft.println();
     readout_y2 = tft.getCursorY();
 
-    MBRTU.task();
-    MBWiFi.task();
-    value = scale.get_value(5);
+    value = scale.get_value(1);
     wait_on_scale();
 }
