@@ -57,9 +57,10 @@ enum MBR{
     CTS_AT_50_LBS_LSB,
     CTS_AT_50_LBS_MSB,
     READOUT_UNITS,
-    test2,
-    test3,
-    test4,
+    RAW_COUNTS_0,
+    RAW_COUNTS_1,
+    RAW_COUNTS_2,
+    RAW_COUNTS_3,
 
     //Leave this one
     TOTAL_REGS_SIZE
@@ -151,6 +152,18 @@ void MB_Write_uint16_t(uint16_t addr, uint16_t value) {
     MBWiFi.Hreg(addr, value);
 }
 
+void MB_Write_Long(uint16_t addr, long value) {
+    union {
+        uint16_t i[4];
+        long l;
+    } long_converter;
+    long_converter.l = value;
+    for (int r = 0; r < 4; r++) {
+        MBWiFi.Hreg(addr + r, long_converter.i[r]);
+        MBRTU.Hreg(addr + r, long_converter.i[r]);
+    }
+}
+
 float MBRTU_Read_float(uint16_t lsb) {
     converter.i[0] = MBRTU.Hreg(lsb + 0);
     converter.i[1] = MBRTU.Hreg(lsb + 1);
@@ -236,7 +249,7 @@ void setup(void) {
     
     tft.print("\nMB RTU: ");
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.println("Addr 1, 115200, 8N1");
+    tft.println("Unit 1, 115200, 8N1");
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.print("MB WIFI: ");
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
@@ -287,6 +300,7 @@ void loop() {
         }
         MB_Write_float(READOUT_LSB, scaled_value);
         MB_Write_uint16_t(READOUT_UNITS, mode);
+        MB_Write_Long(RAW_COUNTS_0, scale.raw_value);
     } 
     else {
         tft.setTextColor(TFT_CYAN, TFT_BLACK);
