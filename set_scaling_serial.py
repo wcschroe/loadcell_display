@@ -5,7 +5,7 @@ from ctypes import (Union, Array, c_uint16, c_float)
 
 controller = None
 try:
-    controller = minimalmodbus.Instrument('COM6', 1)
+    controller = minimalmodbus.Instrument('COM12', 1)
 except serial.serialutil.SerialException as e:
     print(e)
     quit()
@@ -25,5 +25,20 @@ class c_union(Union):
 converter = c_union()
 
 converter.f = 6517900.0
-controller.write_register(2, converter.i[0])
-controller.write_register(3, converter.i[1])
+
+f = open('register_defaults.txt')
+defaults_lines = f.readlines()
+
+for line in defaults_lines:
+    data = line.split('=')
+    reg:int = int(data[0].replace('register[', '').replace(']', '').strip())
+    value:int = int(data[1].strip())
+    print(f'register[{reg}] = {value}')
+    if reg != 34 and reg != 35 and reg < 80:
+        controller.write_register(reg, value)
+
+quit()
+
+for i in range(81):
+    value:int = controller.read_register(i)
+    print(f'register[{i}] = {value}')

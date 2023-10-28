@@ -2,7 +2,7 @@ from pyModbusTCP.client import ModbusClient
 import time
 from ctypes import (Union, Array, c_uint16, c_float)
 
-c = ModbusClient(host="192.168.4.1", auto_open=True)
+c = ModbusClient(host="10.10.3.3", auto_open=True)
 
 class c_uint16_array(Array):
     _type_ = c_uint16
@@ -15,9 +15,7 @@ converter = c_union()
 
 converter.f = 6517900.0
 
-values = [converter.i[0], converter.i[1]]
 
-c.write_multiple_registers(2, [converter.i[0], converter.i[1]])
-
-print(f'wrote {values} ({converter.f})')
-print(f'readback: {c.read_holding_registers(2, 2)}')
+for i in range(88):
+    value:int = c.read_holding_registers(i)
+    print(f'register[{i}] = {value[0]}')
